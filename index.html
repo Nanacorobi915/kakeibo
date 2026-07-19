@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-title" content="かんたん入力">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>🐢 かんたん入力</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1e222b; --line:#2a2f3a;
+    --txt:#eef1f6; --sub:#9aa4b2; --faint:#5a6270;
+    --accent:#2b7fff; --accentDim:#22314a; --ok:#37d67a;
+    --chip:#232833; --radius:16px;
+    --ease:cubic-bezier(.16,1,.3,1);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%;}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+    max-width:520px; margin:0 auto; -webkit-user-select:none; user-select:none;
+    min-height:100dvh; display:flex; flex-direction:column;
+  }
+  #app{flex:1; display:flex; flex-direction:column; padding:0 18px calc(18px + env(safe-area-inset-bottom));}
+  /* --- 画面遷移アニメーション ---
+     方針: 画面は「横」に進む。中の要素も必ず同じ横方向へ揃える（縦の動きは使わない）。
+     進む=右から入る / 戻る=左から入る。--dx が向きを一元管理する。 */
+  .screen{--dx:26px; flex:1; display:flex; flex-direction:column; animation:fadeIn .2s var(--ease);}
+  .screen.rev{--dx:-26px;}
+  @keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+  @keyframes slideX{from{opacity:0; transform:translateX(var(--dx));} to{opacity:1; transform:none;}}
+  @keyframes pop{0%{transform:scale(.94);} 55%{transform:scale(1.03);} 100%{transform:scale(1);}}
+  @keyframes bump{0%{transform:scale(1);} 28%{transform:scale(1.07);} 100%{transform:scale(1);}}
+  @keyframes draw{to{stroke-dashoffset:0;}}
+  /* 画面内の各ブロックを、同じ横方向で少しずつ遅らせて立ち上げる */
+  .screen .q{animation:slideX .4s .03s both var(--ease);}
+  .screen .calcdisp{animation:slideX .42s .08s both var(--ease);}
+  .screen .keypad{animation:slideX .44s .13s both var(--ease);}
+  .screen input.item{animation:slideX .42s .08s both var(--ease);}
+  .screen .foot{animation:slideX .44s .17s both var(--ease);}
+  .screen .hero{animation:slideX .46s .04s both var(--ease);}
+  .screen .quote{animation:slideX .5s .15s both var(--ease);}
+  .screen .homeadd{animation:slideX .46s .22s both var(--ease);}
+  /* --- shared --- */
+  .navbar{display:flex; align-items:center; gap:10px; padding:16px 2px 6px; min-height:56px;}
+  .back{width:40px; height:40px; border-radius:12px; background:var(--card); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--txt);}
+  .back.hidden{visibility:hidden;}
+  .steplabel{font-size:13px; color:var(--sub); font-weight:600;}
+  .progress{margin-left:auto; display:flex; gap:5px; align-items:center;}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--line);}
+  .dot.on{background:var(--accent);}
+  .dot.done{background:#3a5680;}
+  .q{font-size:27px; font-weight:800; letter-spacing:.01em; margin:16px 2px 4px; text-align:center; line-height:1.25;}
+  .qsub{font-size:12.5px; color:var(--sub); letter-spacing:.03em; margin:0 2px 18px; text-align:center; line-height:1.55;}
+  .body{flex:1; display:flex; flex-direction:column; min-height:0; justify-content:center;}
+  .foot{padding-top:12px;}
+  .btn{width:100%; border:none; border-radius:16px; padding:17px; font-size:18px; font-weight:800;
+    background:var(--accent); color:#fff; transition:transform .08s ease, background .12s ease;}
+  .btn:active:not(:disabled){transform:scale(.98);}
+  .btn:disabled{background:#333a46; color:#6b7280;}
+  .btn.ok{background:var(--ok); color:#04210f;}
+  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--txt); font-weight:700;}
+  .btn.ghost:active{background:var(--card);}
+  .btn.compact{width:auto; padding:14px 22px; font-size:16px; border-radius:14px; flex:0 0 auto;}
+  .btn.more{margin-top:14px; padding:14px; font-size:15px; font-weight:600; color:var(--sub);}
+  .btn.more:active{background:var(--card); color:var(--txt);}
+  .choice.newtag{border-style:dashed; color:var(--accent); background:transparent;}
+  .addrow{display:flex; gap:8px; margin-top:14px;}
+  .addrow input.item{flex:1; font-size:17px; padding:14px;}
+  /* --- amount --- */
+  .calcdisp{background:var(--card); border-radius:var(--radius); padding:14px 20px; margin:2px 0 14px;
+    border:1px solid var(--line); min-height:92px; display:flex; flex-direction:column;
+    justify-content:center; gap:6px;}
+  .calcdisp .expr{font-size:16px; color:var(--sub); text-align:right; min-height:20px;
+    word-break:break-all; font-variant-numeric:tabular-nums; letter-spacing:1px;}
+  .calcdisp .res{display:flex; align-items:baseline; justify-content:flex-end; gap:6px;}
+  .calcdisp .yen{font-size:22px; color:var(--sub);}
+  .calcdisp .val{font-size:44px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;}
+  .calcdisp .val.empty{color:#3a4150;}
+  .keypad{display:grid; grid-template-columns:repeat(4,1fr); gap:9px;}
+  .key{background:var(--card2); border:1px solid var(--line); border-radius:14px; padding:16px 0;
+    font-size:23px; font-weight:700; display:flex; align-items:center; justify-content:center;
+    transition:transform .07s ease, background .1s ease;}
+  .key:active{background:#2a3140; transform:scale(.95);}
+  .key.op{color:var(--accent); background:#19212f; border-color:#26344d;}
+  .key.fn{color:#ffb020;}
+  .key.eq{background:var(--accent); color:#fff; border-color:var(--accent); grid-row:span 2;}
+  .key.zero{grid-column:span 2;}
+  .key .ic{width:26px; height:26px; display:block;}
+  .bump{animation:bump .2s var(--ease);}
+  /* --- 記録完了の演出 --- */
+  .success{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;}
+  .check{width:104px; height:104px;}
+  .check circle{fill:none; stroke:var(--ok); stroke-width:2.5; stroke-dasharray:151; stroke-dashoffset:151;
+    animation:draw .55s var(--ease) forwards;}
+  .check path{fill:none; stroke:var(--ok); stroke-width:4; stroke-linecap:round; stroke-linejoin:round;
+    stroke-dasharray:44; stroke-dashoffset:44; animation:draw .4s .45s var(--ease) forwards;}
+  .stitle{font-size:23px; font-weight:800; letter-spacing:.02em; animation:slideX .45s .5s both var(--ease);}
+  .ssub{font-size:15px; color:var(--sub); font-variant-numeric:tabular-nums; animation:slideX .45s .62s both var(--ease);}
+  /* --- text input --- */
+  input.item{width:100%; background:var(--card); border:1px solid var(--line); border-radius:14px;
+    color:var(--txt); font-size:20px; padding:16px; outline:none; -webkit-user-select:text; user-select:text;}
+  input.item:focus{border-color:var(--accent);}
+  input.item::placeholder{color:var(--faint);}
+  /* --- big choice chips --- */
+  .choices{display:flex; flex-direction:column; gap:12px; margin-top:4px;}
+  .choice{position:relative; background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:22px 18px; font-size:19px; font-weight:700; letter-spacing:.02em; display:flex; align-items:center;
+    justify-content:center; gap:11px; text-align:center; animation:slideX .44s both var(--ease);
+    transition:transform .12s var(--ease), background .16s ease, border-color .16s ease;}
+  .choice .ic{width:22px; height:22px; flex:0 0 auto; color:var(--c,var(--accent));
+    transition:transform .18s var(--ease);}
+  .choice.on .ic{transform:scale(1.12);}
+  .choices.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .choices.grid2 .choice{padding:19px 10px; font-size:17px;}
+  .choices .choice:nth-child(1){animation-delay:.04s} .choices .choice:nth-child(2){animation-delay:.08s}
+  .choices .choice:nth-child(3){animation-delay:.12s} .choices .choice:nth-child(4){animation-delay:.16s}
+  .choices .choice:nth-child(5){animation-delay:.20s} .choices .choice:nth-child(6){animation-delay:.24s}
+  .choices .choice:nth-child(7){animation-delay:.28s} .choices .choice:nth-child(8){animation-delay:.32s}
+  .choices .choice:nth-child(9){animation-delay:.36s} .choices .choice:nth-child(10){animation-delay:.40s}
+  .choices .choice:nth-child(11){animation-delay:.44s} .choices .choice:nth-child(12){animation-delay:.48s}
+  .choice:active{background:var(--card2); transform:scale(.97);}
+  .choice.on{background:var(--card2); border-color:var(--c,var(--accent)); animation:pop .22s var(--ease);
+    box-shadow:0 0 0 1px var(--c,var(--accent)) inset;}
+  .choice .tick{position:absolute; right:18px; color:var(--c,var(--accent)); font-size:20px; opacity:0;
+    transform:scale(.6); transition:opacity .16s ease, transform .16s var(--ease);}
+  .choice.on .tick{opacity:1; transform:scale(1);}
+  /* 候補の有無でレイアウトが動かないよう高さを確保（入力枠がずれない） */
+  .recents{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; justify-content:center;
+    align-content:flex-start; min-height:88px;}
+  .rchip{background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:10px 15px;
+    font-size:14px; color:var(--txt); font-weight:600; animation:slideX .32s both var(--ease);
+    transition:transform .14s var(--ease), background .14s ease, border-color .14s ease,
+      color .14s ease, opacity .3s ease;}
+  .rchip:active{background:var(--card2); transform:scale(.94);}
+  .rchip.picked{background:var(--accent); border-color:var(--accent); color:#fff;
+    animation:pickPop .42s var(--ease);}
+  .rchip.dim{opacity:0; transform:translateX(calc(var(--dx) * .5)) scale(.92);}
+  @keyframes pickPop{0%{transform:scale(1);} 35%{transform:scale(1.14);} 100%{transform:scale(1);}}
+  input.item.flash{animation:inputFlash .6s var(--ease);}
+  @keyframes inputFlash{
+    0%{border-color:var(--accent); box-shadow:0 0 0 4px rgba(43,127,255,.28);}
+    60%{border-color:var(--accent); box-shadow:0 0 0 2px rgba(43,127,255,.14);}
+    100%{border-color:var(--line); box-shadow:none;}}
+  .btn.ready{animation:readyPulse .5s var(--ease);}
+  @keyframes readyPulse{0%{transform:scale(1);} 40%{transform:scale(1.025);} 100%{transform:scale(1);}}
+  /* --- home --- */
+  /* 🐢 は文字とグリフの中心が合わない（ベースラインより下にはみ出す）。
+     まずベースラインを揃え、実測したインク中心の差を alignTurtle() が translateY で補正する。 */
+  .home-hd{display:flex; align-items:center; gap:8px; padding:18px 2px 2px;}
+  .home-hd .turtle{font-size:26px; line-height:1; display:inline-block;}
+  .home-hd .m{font-size:20px; font-weight:800; letter-spacing:.02em; line-height:1; display:inline-block;}
+  /* ホーム本体: 支出と名言を画面の中央に置く */
+  .homebody{flex:1; display:flex; flex-direction:column; justify-content:center; gap:54px; min-height:0;}
+  .hero{text-align:center;}
+  .hero .hlabel{font-size:12.5px; color:var(--sub); letter-spacing:.1em;}
+  .hero .hvalue{font-size:52px; font-weight:800; line-height:1.05; margin:8px 0 22px;
+    font-variant-numeric:tabular-nums; letter-spacing:-.015em;}
+  .hbar{height:10px; border-radius:99px; overflow:hidden; display:flex; background:var(--card2); gap:2px;}
+  .hbar span{height:100%; display:block; transition:width .7s var(--ease);}
+  .hlegend{display:flex; gap:18px; margin-top:13px; justify-content:center;}
+  .hlegend .lg{display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--txt);}
+  .hlegend .dot{width:8px; height:8px; border-radius:99px; display:block;}
+  /* 名言（心に刻む。金額ブロックと混ざらないよう、引用符で独立した塊に見せる） */
+  .quote{text-align:center; padding:0 6px; position:relative;}
+  .qmark{font-family:Georgia,'Times New Roman',serif; font-size:64px; line-height:.3;
+    color:var(--faint); opacity:.5; height:30px; margin-bottom:8px; user-select:none;}
+  .qtext{font-weight:700; letter-spacing:.03em; color:var(--txt); text-wrap:balance;
+    line-height:1.72; font-size:24px;}
+  .ph{white-space:nowrap;}          /* 文節の内部では改行させない */
+  .homeadd{margin-top:auto; width:100%; border:none; border-radius:18px; padding:22px; font-size:20px;
+    font-weight:800; background:var(--accent); color:#fff; display:flex; align-items:center;
+    justify-content:center; gap:10px;}
+  /* --- confirm --- */
+  .rows{display:flex; flex-direction:column; gap:2px; background:var(--card); border:1px solid var(--line);
+    border-radius:16px; overflow:hidden; margin-top:2px;}
+  .row{position:relative; display:flex; align-items:center; gap:12px; padding:16px 18px; border-bottom:1px solid var(--line);
+    animation:slideX .4s both var(--ease); transition:background .12s ease;}
+  .row:active{background:var(--card2);}
+  .rows .row:nth-child(1){animation-delay:.03s} .rows .row:nth-child(2){animation-delay:.07s}
+  .rows .row:nth-child(3){animation-delay:.11s} .rows .row:nth-child(4){animation-delay:.15s}
+  .rows .row:nth-child(5){animation-delay:.19s} .rows .row:nth-child(6){animation-delay:.23s}
+  .rows .row:nth-child(7){animation-delay:.27s} .rows .row:nth-child(8){animation-delay:.31s}
+  .row:last-child{border-bottom:none;}
+  .row .l{font-size:13px; color:var(--sub); width:84px; flex:0 0 auto;}
+  .row .v{font-size:17px; font-weight:700; flex:1; font-variant-numeric:tabular-nums;}
+  .row .edit{color:var(--accent); font-size:13px;}
+  .toast{position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:var(--ok); color:#04210f; font-weight:700; padding:12px 20px; border-radius:999px;
+    opacity:0; transition:opacity .25s,transform .25s; pointer-events:none; z-index:20; font-size:15px;}
+  .toast.show{opacity:1; transform:translate(-50%,-6px);}
+  .toast.err{background:#ff5c5c; color:#2a0000;}
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+/* ==== 実行モード ==============================================================
+   本番(GitHub Pages)では Apps Script を fetch で叩く（トークン付き）。
+   ローカル(localhost/file)ではモックで単体プレビューする。 */
+var API_URL='https://script.google.com/macros/s/AKfycbwnXOOCaYZkc8fek5zonE4rhSk_bP6jNX7aNWUJf_iq-mmjWNDLIPG6bRBXgBPcOM9RpQ/exec';
+var USE_LIVE=/(github\.io|githubusercontent)/.test(location.hostname) || /[?&]live=1/.test(location.search);
+function getPin(){ return localStorage.getItem('wallet_pin')||''; }
+
+/* Apps Script doPost を呼ぶ。Content-Type を付けない＝text/plain 扱いで CORS プリフライトを避ける。 */
+function callApi(fn,payload){
+  return fetch(API_URL,{ method:'POST', body:JSON.stringify({fn:fn,token:getPin(),payload:payload||{}}) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if(j&&j.error){ var er=new Error(j.error); if(j.error==='unauthorized'){ er.unauthorized=true; if(window.__onUnauthorized) window.__onUnauthorized(); } throw er; }
+      return j;
+    });
+}
+
+if (USE_LIVE) {
+  /* ---- 本番: fetch で Apps Script を呼ぶ（google.script.run 互換） ---- */
+  window.google={ script:{ run:(function(){
+    function runner(){
+      var h={s:null,f:null};
+      function ok(v){ if(h.s) h.s(v); }
+      function ng(e){ if(h.f) h.f(e); }
+      var r={
+        withSuccessHandler:function(f){h.s=f;return r;},
+        withFailureHandler:function(f){h.f=f;return r;},
+        getFormMeta:function(){ callApi('getFormMeta').then(ok,ng); },
+        appendExpense:function(p){ callApi('appendExpense',p).then(ok,ng); },
+        addTag:function(n){ callApi('addTag',{name:n}).then(function(j){ok(j.tags);},ng); },
+        addMethod:function(n){ callApi('addMethod',{name:n}).then(function(j){ok(j.methods);},ng); }
+      };
+      return r;
+    }
+    return {
+      withSuccessHandler:function(f){return runner().withSuccessHandler(f);},
+      withFailureHandler:function(f){return runner().withFailureHandler(f);},
+      getFormMeta:function(){return runner().getFormMeta();},
+      appendExpense:function(p){return runner().appendExpense(p);},
+      addTag:function(n){return runner().addTag(n);},
+      addMethod:function(n){return runner().addMethod(n);}
+    };
+  })() } };
+}
+
+/* ---- google.script.run スタブ（ローカルプレビュー用） ---- */
+if (typeof google === 'undefined' || !google.script) {
+  window.google = { script:{ run:(function(){
+    /* ローカル日付（toISOStringはUTCなのでJSTだと前日になる） */
+    function localToday(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+    /* ★実シート(505件)の頻出品目をそのまま使用。架空データは使わない */
+    /* シート側で統一された12種（サブスク表の実態＋日常系） */
+    var mockTags=['外食','食料品','交通','サブスク','音楽','ビジネス','配信','娯楽','プレゼント','機材'];
+    var mockMethods=['PayPay','Suica','三井住友','三菱UFJ','JCB','Freee','PayPal','Apple','現金'];
+    var mockItemTags={'食材調達':'食料品','ルイボスS(DOUTOR)':'外食','ルイボスM(DOUTOR)':'外食',
+      '外食(すき家/母)':'外食','外食(すき家/ひとり)':'外食','外食(大戸屋/ひとり)':'外食',
+      '交通費(横浜)':'交通','交通費(和田町)':'交通','交通費(新杉田)':'交通',
+      'Open AI API Credit':'サブスク','Spotify Premium':'サブスク','Kindle Unlimited':'サブスク',
+      'Amazon Prime':'サブスク','YouTube Premium':'サブスク','Anytime Fitness':'サブスク'};
+    var cb={}; var api={
+      withSuccessHandler:function(f){cb.s=f;return api;},
+      withFailureHandler:function(f){cb.f=f;return api;},
+      getFormMeta:function(){ setTimeout(function(){ cb.s({
+        monthName:'7月', sheetExists:true, today:localToday(),
+        shito:['個人','社用'], hyoka:['投資','消費','浪費'],
+        kanjo:['消耗品費','通信費','交際費','会議費','新聞図書費','地代家賃','個人'],
+        methods:mockMethods.slice(),
+        tags:mockTags.slice(), itemTags:mockItemTags,
+        /* ★実シート分析: 3回以上採用 かつ サブスクシート掲載を除外した14件（実物と同じ） */
+        recentItems:['食材調達','ルイボスS(DOUTOR)','外食(すき家/母)','交通費(横浜)','外食(すき家/ひとり)',
+          '引越必要用品','Open AI API Credit','交通費(和田町)','交通費(新杉田)','外食(大戸屋/ひとり)',
+          'ルイボスM(DOUTOR)','交通費(羽沢横浜国大)','Switch Bot 製品','外食(La Boheme/ひとり)'],
+        totals:{sha:166361,koj:143933,toshi:52000,shohi:238294,rohi:20000}
+      }); },250); },
+      addTag:function(name){ setTimeout(function(){
+        if(mockTags.indexOf(name)<0) mockTags.push(name);
+        cb.s(mockTags.slice()); },200); },
+      addMethod:function(name){ setTimeout(function(){
+        if(mockMethods.indexOf(name)<0) mockMethods.push(name);
+        cb.s(mockMethods.slice()); },200); },
+      appendExpense:function(p){ setTimeout(function(){
+        if(p.item&&p.tag) mockItemTags[p.item]=p.tag;
+        cb.s({ok:true,monthName:'7月',
+          totals:{sha:166361+(p.shito==='社用'?+p.price:0), koj:143933+(p.shito==='個人'?+p.price:0)},
+          itemTags:mockItemTags}); },500); }
+    }; return api;
+  })() } };
+}
+
+/* ---- 状態 ---- */
+var meta=null;
+var data={ amount:'', item:'', tag:'', method:'', shito:'', kanjo:'', hyoka:'', date:'' };
+var LABELS={amount:'金額',item:'品目',tag:'タグ',method:'支払方法',shito:'使途',kanjo:'勘定項目',hyoka:'評価'};
+var cur='home';          // 'home' | step-name | 'confirm'
+var editReturn=false;    // 確認画面から項目編集→確認へ戻る
+var navDir='fwd';        // 'fwd' | 'back'（アニメーション方向）
+
+/* ★品目の推測候補は一旦オフ。
+   過去シートにタグ/支払方法の列を追加して分析し直してから true に戻す。
+   （現状のデータだけで推測すると精度が出ないため） */
+var SUGGEST_ENABLED=false;
+
+var tagInherited=false;   /* 候補から品目を選びタグを引き継いだ = タグ選択を飛ばす */
+
+/* 個人のときは勘定項目、タグ引き継ぎ時はタグを飛ばす（確認画面でいつでも変更可） */
+function activeSteps(){
+  var s=['amount','item'];
+  if(!tagInherited) s.push('tag');
+  s.push('method','shito');
+  if(data.shito!=='個人') s.push('kanjo');
+  s.push('hyoka');
+  return s;
+}
+
+var app=document.getElementById('app');
+function fy(n){return Number(n||0).toLocaleString('ja-JP');}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function toast(m,err){var t=document.getElementById('toast');t.textContent=m;t.className='toast show'+(err?' err':'');
+  setTimeout(function(){t.className='toast'+(err?' err':'');},1800);}
+function vib(ms){if(navigator.vibrate)navigator.vibrate(ms);}
+
+/* ---- お金の名言（ホームでランダム表示） ----
+   帰属が争われている俗説（例:「複利は人類最大の発明」=アインシュタイン説）は除外し、
+   出典がはっきりしているものを中心に収録。 */
+var QUOTES=[
+{q:'価格とは支払うもの。価値とは手に入れるものだ。',a:'ウォーレン・バフェット'},
+{q:'ルール1、決して金を失わないこと。ルール2、ルール1を絶対に忘れないこと。',a:'ウォーレン・バフェット'},
+{q:'他人が貪欲なときに恐れ、他人が恐れているときに貪欲であれ。',a:'ウォーレン・バフェット'},
+{q:'素晴らしい企業を適正な価格で買うほうが、平凡な企業を格安で買うよりずっとよい。',a:'ウォーレン・バフェット'},
+{q:'今日、誰かが日陰に座れるのは、ずっと前に誰かが木を植えたからだ。',a:'ウォーレン・バフェット'},
+{q:'支出して残った分を貯めるのではなく、貯めて残った分を使いなさい。',a:'ウォーレン・バフェット'},
+{q:'リスクは、自分が何をしているか分かっていないことから生まれる。',a:'ウォーレン・バフェット'},
+{q:'10年持つ気がない株なら、10分すら持つべきではない。',a:'ウォーレン・バフェット'},
+{q:'評判を築くには20年かかるが、壊すには5分とかからない。',a:'ウォーレン・バフェット'},
+{q:'投資とは、将来より多く受け取るために、今日の購買力を手放すことだ。',a:'ウォーレン・バフェット'},
+{q:'誰が裸で泳いでいたかは、潮が引いたときに分かる。',a:'ウォーレン・バフェット'},
+{q:'習慣の鎖は、重すぎて断ち切れなくなるまで軽くて感じられない。',a:'ウォーレン・バフェット'},
+{q:'最も重要な投資は、自分自身への投資である。',a:'ウォーレン・バフェット'},
+{q:'分散投資は無知に対する防御だ。自分が何をしているか分かっていれば、ほとんど意味がない。',a:'ウォーレン・バフェット'},
+{q:'株式市場は、せっかちな人から辛抱強い人へお金を移す装置である。',a:'ウォーレン・バフェット'},
+{q:'最初の10万ドルを貯めるのが一番きつい。だが、なんとしてもやり遂げなさい。',a:'チャーリー・マンガー'},
+{q:'大金は売り買いにあるのではなく、待つことにある。',a:'チャーリー・マンガー'},
+{q:'手数料と税金を差し引いた後で考えろ。それ以外は幻想だ。',a:'チャーリー・マンガー'},
+{q:'複利の効きを、必要もないのに邪魔してはいけない。',a:'チャーリー・マンガー'},
+{q:'1ペニーの節約は、1ペニーの稼ぎに等しい。',a:'ベンジャミン・フランクリン'},
+{q:'時は金なり。',a:'ベンジャミン・フランクリン'},
+{q:'知識への投資は、常に最高の利息を生む。',a:'ベンジャミン・フランクリン'},
+{q:'小さな出費に用心せよ。小さな穴が大きな船を沈める。',a:'ベンジャミン・フランクリン'},
+{q:'富は、持つ者のものではなく、楽しむ者のものである。',a:'ベンジャミン・フランクリン'},
+{q:'借金をするより、夕食を抜いて寝るほうがよい。',a:'ベンジャミン・フランクリン'},
+{q:'空の袋はまっすぐに立たない。',a:'ベンジャミン・フランクリン'},
+{q:'貧しいのは、持っているものが少ない人ではなく、もっと欲しがる人だ。',a:'セネカ'},
+{q:'我々が短い人生を受け取ったのではない。我々がそれを短くしているのだ。',a:'セネカ'},
+{q:'どの港へ向かうか分からぬ者に、順風は吹かない。',a:'セネカ'},
+{q:'足るを知る者は富む。',a:'老子'},
+{q:'大道は甚だ夷らかなるも、民は径を好む。',a:'老子'},
+{q:'不義にして富み且つ貴きは、我に於いて浮雲の如し。',a:'孔子'},
+{q:'富にして求むべくんば、執鞭の士と雖も、吾亦これを為さん。',a:'孔子'},
+{q:'富をなす根源は仁義道徳。正しい道理の富でなければ、その富は永続しない。',a:'渋沢栄一'},
+{q:'論語と算盤は、一致すべきものである。',a:'渋沢栄一'},
+{q:'夢なき者は理想なし、理想なき者は信念なし、信念なき者は計画なし。',a:'渋沢栄一'},
+{q:'人生設計の第一歩は、まず収入の四分の一を天引き貯金することである。',a:'本多静六'},
+{q:'金儲けの秘訣は、勤倹貯蓄から始まる。',a:'本多静六'},
+{q:'職業の道楽化こそ、人生最大の幸福である。',a:'本多静六'},
+{q:'道徳なき経済は罪悪であり、経済なき道徳は寝言である。',a:'二宮尊徳'},
+{q:'遠きをはかる者は富み、近くをはかる者は貧す。',a:'二宮尊徳'},
+{q:'積小為大。小を積みて大と為す。',a:'二宮尊徳'},
+{q:'短期的には市場は投票機だが、長期的には計量器である。',a:'ベンジャミン・グレアム'},
+{q:'投資家の最大の問題、そして最大の敵は、おそらく自分自身である。',a:'ベンジャミン・グレアム'},
+{q:'安全余裕。この四文字に、健全な投資の秘密は集約される。',a:'ベンジャミン・グレアム'},
+{q:'投資とは、徹底した分析に基づき、元本の安全と適切な収益を約束する行為である。',a:'ベンジャミン・グレアム'},
+{q:'干し草の山から針を探すな。干し草の山ごと買え。',a:'ジョン・ボーグル'},
+{q:'時間は味方、衝動は敵。',a:'ジョン・ボーグル'},
+{q:'市場のリターンのうち、あなたが手にするのはコストを引いた残りだけだ。',a:'ジョン・ボーグル'},
+{q:'何もしないでじっとしていろ。',a:'ジョン・ボーグル'},
+{q:'投資家が被る損失の多くは、下落そのものより、下落を予測しようとして生じる。',a:'ピーター・リンチ'},
+{q:'自分が理解できるものに投資しなさい。',a:'ピーター・リンチ'},
+{q:'株を買うのに、なぜ電子レンジを買うときほど調べないのか。',a:'ピーター・リンチ'},
+{q:'強気相場は悲観の中で生まれ、懐疑の中で育ち、楽観の中で成熟し、幸福感の中で消えていく。',a:'ジョン・テンプルトン'},
+{q:'「今回は違う」は、投資で最も高くつく四文字だ。',a:'ジョン・テンプルトン'},
+{q:'分散投資は、投資における唯一のフリーランチである。',a:'ハリー・マーコウィッツ'},
+{q:'お金のために働くのではなく、お金を自分のために働かせなさい。',a:'ロバート・キヨサキ'},
+{q:'金持ちは資産を買う。貧乏人は支出をする。中流は資産だと思って負債を買う。',a:'ロバート・キヨサキ'},
+{q:'今、他の人がしない生き方をすれば、後で他の人ができない生き方ができる。',a:'デイヴ・ラムジー'},
+{q:'予算とは、お金にどこへ行けと命じることだ。さもないと、どこへ消えたかと訝ることになる。',a:'デイヴ・ラムジー'},
+{q:'年収20ポンド、年支出19ポンド19シリング6ペンス、結果幸福。年収20ポンド、年支出20ポンド0シリング6ペンス、結果悲惨。',a:'チャールズ・ディケンズ'},
+{q:'金は良い召使いだが、悪い主人である。',a:'フランシス・ベーコン'},
+{q:'倹約は、立派な収入である。',a:'キケロ'},
+{q:'富とは、多くの財産を持つことではなく、少ない欲求を持つことだ。',a:'エピクテトス'},
+{q:'持っていないものを嘆くな。持っているものを喜べ。',a:'エピクテトス'},
+{q:'人は自分に起こる出来事ではなく、それをどう捉えるかに乱される。',a:'エピクテトス'},
+{q:'幸福とは、多くを持つことではなく、多くを必要としないことだ。',a:'ソクラテス'},
+{q:'満足は自然の富であり、贅沢は人工の貧困である。',a:'ソクラテス'},
+{q:'金銭は、それを軽蔑する者にこそ、しばしば集まる。',a:'アリストテレス'},
+{q:'富の本質は、使用にあって所有にあるのではない。',a:'アリストテレス'},
+{q:'私が知る限り、幸福な金持ちになる唯一の方法は、稼ぐより少なく使うことだ。',a:'アンドリュー・カーネギー'},
+{q:'一つのカゴにすべての卵を盛れ。そしてそのカゴを見守れ。',a:'アンドリュー・カーネギー'},
+{q:'金持ちのまま死ぬのは、恥ずべきことだ。',a:'アンドリュー・カーネギー'},
+{q:'貯蓄しない人間は、成功への道具を持たない。',a:'ジョン・D・ロックフェラー'},
+{q:'配当が入ってくるのを見ること以外に、私に喜びを与えるものはない。',a:'ジョン・D・ロックフェラー'},
+{q:'誰かに何かを頼むなら、まず自分がその価値を示せ。',a:'ジョン・D・ロックフェラー'},
+{q:'貧乏人とは、お金を持たない人ではない。何もすることがない人のことだ。',a:'ヘンリー・フォード'},
+{q:'金は腕と頭に付いてくる。追いかけるものではない。',a:'ヘンリー・フォード'},
+{q:'できると思えばできる、できないと思えばできない。',a:'ヘンリー・フォード'},
+{q:'成功の秘訣は、他人の立場を理解することだ。',a:'ヘンリー・フォード'},
+{q:'収入を増やすより、支出を減らすほうが確実だ。',a:'ことわざ'},
+{q:'早起きは三文の徳。',a:'ことわざ'},
+{q:'塵も積もれば山となる。',a:'ことわざ'},
+{q:'安物買いの銭失い。',a:'ことわざ'},
+{q:'金は天下の回り物。',a:'ことわざ'},
+{q:'入るを量りて出ずるを為す。',a:'礼記'},
+{q:'倹約は最良の収入源である。',a:'ラルフ・ワルド・エマソン'},
+{q:'金は海水のようなものだ。飲めば飲むほど喉が渇く。',a:'ショーペンハウアー'},
+{q:'富は、それを使う知恵がなければ役に立たない。',a:'ヘンリー・デイヴィッド・ソロー'},
+{q:'人は、自分の魂を売り渡すほど安く時間を売っている。',a:'ヘンリー・デイヴィッド・ソロー'},
+{q:'ある物の値段とは、それと引き換えに差し出す人生の量である。',a:'ヘンリー・デイヴィッド・ソロー'},
+{q:'簡素に、簡素に、簡素に生きよ。',a:'ヘンリー・デイヴィッド・ソロー'},
+{q:'人生でお金がすべてではないと言う人ほど、たいていお金を持っていない。',a:'サマセット・モーム'},
+{q:'金は第六感のようなもので、それなしでは他の五感も十分に働かない。',a:'サマセット・モーム'},
+{q:'一日一日を、収穫のためでなく、種まきのために生きよ。',a:'ロバート・ルイス・スティーヴンソン'},
+{q:'投資で成功する鍵は、他人が売っているときに買う勇気を持つことだ。',a:'ジョン・テンプルトン'},
+{q:'安く買って高く売る。誰もが知っているが、誰もができない。',a:'ジム・ロジャーズ'},
+{q:'何もしないことも、立派な投資判断である。',a:'ジム・ロジャーズ'},
+{q:'市場は、あなたが支払い能力を保てる以上に長く、不合理であり続けられる。',a:'ジョン・メイナード・ケインズ'},
+{q:'長期的には、我々はみな死んでいる。',a:'ジョン・メイナード・ケインズ'},
+{q:'正しいことよりも、間違っていることに早く気づくほうが大事だ。',a:'ジョージ・ソロス'},
+{q:'重要なのは、正しいか間違っているかではなく、正しいときにいくら儲け、間違ったときにいくら損するかだ。',a:'ジョージ・ソロス'},
+{q:'節約とは、貧しくなることではなく、自由になることだ。',a:'ヴィッキー・ロビン'},
+{q:'お金とは、あなたの人生のエネルギーと引き換えに得るものだ。',a:'ヴィッキー・ロビン'},
+{q:'富とは、働かなくなった後、何日生きられるかで測られる。',a:'ロバート・キヨサキ'},
+{q:'倹約なくして、誰も金持ちにはなれない。倹約すれば、誰も貧乏にはならない。',a:'サミュエル・ジョンソン'},
+{q:'金を稼ぐより、使うほうが難しい。',a:'ヘンリー・デイヴィッド・ソロー'},
+{q:'我々は、必要のないものを買うために、好きでもない仕事をしている。',a:'チャック・パラニューク'},
+{q:'複利は、時間を味方につけた者だけに微笑む。',a:'ジョン・ボーグル'},
+{q:'貯金は、未来の自分への仕送りである。',a:'ことわざ'},
+{q:'一銭を笑う者は一銭に泣く。',a:'ことわざ'},
+{q:'稼ぐに追いつく貧乏なし。',a:'ことわざ'}
+];
+function randomQuote(){ return QUOTES[Math.floor(Math.random()*QUOTES.length)]; }
+
+/* 話者の功績（誰か分かるように簡潔に） */
+var AUTHORS={
+'ウォーレン・バフェット':'史上最高の投資家・バークシャー会長',
+'チャーリー・マンガー':'バフェットの盟友・バークシャー副会長',
+'ベンジャミン・フランクリン':'アメリカ建国の父',
+'ベンジャミン・グレアム':'バリュー投資の父',
+'ジョン・ボーグル':'インデックス投資の創始者・バンガード創業',
+'ピーター・リンチ':'伝説のファンドマネージャー',
+'ジョン・テンプルトン':'逆張り投資の先駆者',
+'ハリー・マーコウィッツ':'現代ポートフォリオ理論・ノーベル経済学賞',
+'ジム・ロジャーズ':'世界的投資家・クォンタムファンド共同創業',
+'ジョージ・ソロス':'ヘッジファンドの帝王',
+'ジョン・メイナード・ケインズ':'20世紀最大の経済学者',
+'ロバート・キヨサキ':'『金持ち父さん貧乏父さん』著者',
+'デイヴ・ラムジー':'アメリカの家計再建の伝道師',
+'ヴィッキー・ロビン':'『お金か人生か』著者・FIREの源流',
+'アンドリュー・カーネギー':'鉄鋼王・大慈善家',
+'ジョン・D・ロックフェラー':'石油王・史上最大の富豪',
+'ヘンリー・フォード':'フォード創業者・大量生産の父',
+'渋沢栄一':'日本資本主義の父・500社を創った男',
+'本多静六':'日本初の林学博士・蓄財の名人',
+'二宮尊徳':'江戸の農政家・報徳思想の祖',
+'老子':'古代中国の思想家・道教の祖',
+'孔子':'儒教の祖',
+'セネカ':'古代ローマのストア派哲学者',
+'キケロ':'古代ローマの政治家・雄弁家',
+'エピクテトス':'ストア派の哲学者・元奴隷',
+'ソクラテス':'古代ギリシャの哲学者',
+'アリストテレス':'古代ギリシャの哲学者・万学の祖',
+'フランシス・ベーコン':'イギリスの哲学者・帰納法の祖',
+'ショーペンハウアー':'ドイツの哲学者',
+'ラルフ・ワルド・エマソン':'アメリカの思想家',
+'ヘンリー・デイヴィッド・ソロー':'『ウォールデン』の思想家',
+'チャールズ・ディケンズ':'イギリスの文豪',
+'サマセット・モーム':'イギリスの作家',
+'サミュエル・ジョンソン':'イギリスの文学者・辞書編纂者',
+'ロバート・ルイス・スティーヴンソン':'『宝島』の作家',
+'チャック・パラニューク':'『ファイト・クラブ』の作家',
+'礼記':'儒教の経典',
+'ことわざ':''
+};
+function authorLine(a){
+  var d=AUTHORS[a];
+  return d ? (a+'（'+d+'）') : a;
+}
+
+/* 日本語を文節っぽい塊へ分割する。
+   改行してよいのは「句読点の後」と「助詞の後」だけ。塊の内部は改行禁止にするので、
+   「正しいか間／違っている」のような単語の途中での分断が起きない。 */
+/* 助詞として扱う字。「と」「か」「な」は語を壊すため除外
+   （と→とき/ところ/とも、か→しかし、な→なければ 等） */
+var PARTICLES='はがをにへでもやのば';
+var PUNCT='、。！？';
+function phraseChunks(s){
+  var out=[], cur='';
+  for(var i=0;i<s.length;i++){
+    var c=s[i], nx=s[i+1]||'';
+    cur+=c;
+    if(nx==='') continue;
+    var isPunct = PUNCT.indexOf(c)>=0;
+    var isP = PARTICLES.indexOf(c)>=0 && cur.length>1;   /* 塊の先頭の「と」等は助詞ではない */
+    var nextIsP = PARTICLES.indexOf(nx)>=0;
+    var nextIsPunct = (PUNCT+'」』）').indexOf(nx)>=0;
+    /* 「ではなく」「ではない」等の常用句は割らない */
+    var glue = ['なく','ない','なら','なけ'].indexOf(s.substr(i+1,2))>=0;
+    if(isPunct || (isP && !nextIsP && !nextIsPunct && !glue)){ out.push(cur); cur=''; }
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+function quoteHtml(s){
+  return phraseChunks(s).map(function(p){
+    return '<span class="ph">'+esc(p)+'</span>';
+  }).join('');
+}
+/* 名言の字の大きさを決める。
+   「全体の長さ」だけでなく「最長の塊が一行に収まるか」も見て、実際の幅から算出する。
+   これで塊を割らずに（＝語の途中で改行せずに）、可能な限り大きく表示できる。 */
+function fitQuote(s){
+  var el=document.querySelector('.qtext');
+  if(!el) return;
+  var w=el.clientWidth || 480;
+  var chunks=phraseChunks(s);
+  var maxCh=1;
+  chunks.forEach(function(p){ if(p.length>maxCh) maxCh=p.length; });
+  var n=s.length;
+  var byTotal = n<=22 ? 34 : (n<=40 ? 28 : (n<=62 ? 23 : 19));  /* 全体量からの上限 */
+  var byChunk = Math.floor(w / (maxCh*1.08));                    /* 最長の塊が収まる上限 */
+  var size=Math.max(14, Math.min(byTotal, byChunk, 34));
+  el.style.fontSize=size+'px';
+}
+
+/* ---- アイコン（線画・currentColor）＋ 色による識別 ---- */
+var ICON={
+  person:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
+  briefcase:'<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/>',
+  cart:'<path d="M3 4h2l2.2 10.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H6"/><circle cx="9" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/>',
+  trend:'<path d="M3 17l6-6 4 4 7-7"/><path d="M15 8h5v5"/>',
+  flame:'<path d="M12 3c.5 3 3 4.5 3 8a3 3 0 0 1-6 0c0-1 .5-1.8 1-2.5C9 10 7.5 12 7.5 14.5A4.5 4.5 0 0 0 12 19a4.5 4.5 0 0 0 4.5-4.5C16.5 9.5 13.5 6 12 3z"/>',
+  card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
+  phone:'<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M10.5 18.5h3"/>',
+  train:'<rect x="5" y="3" width="14" height="12" rx="3"/><path d="M5 10h14"/><circle cx="9" cy="12.5" r="1"/><circle cx="15" cy="12.5" r="1"/><path d="M8 18l-2 3M16 18l2 3"/>',
+  cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>',
+  dots:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  food:'<path d="M6 3v7a2 2 0 0 0 4 0V3"/><path d="M8 10v11"/><path d="M17.5 3C16 5 15.5 7 15.5 9c0 1.2.8 2 2 2h1V3z"/><path d="M17.5 11v10"/>',
+  gift:'<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M12 8v13"/><path d="M12 8C10.5 5.5 9 4 7.8 4.6 6.6 5.2 7.4 8 12 8zM12 8c1.5-2.5 3-4 4.2-3.4 1.2.6.4 3.4-4.2 3.4z"/>',
+  tag:'<path d="M3 11.5V5a2 2 0 0 1 2-2h6.5L21 12.5 12.5 21z"/><circle cx="8" cy="8" r="1.4"/>',
+  basket:'<path d="M5.5 9h13l-1.3 10.2a2 2 0 0 1-2 1.8H8.8a2 2 0 0 1-2-1.8z"/><path d="M9 9V6.5a3 3 0 0 1 6 0V9"/><path d="M10 13v4M14 13v4"/>',
+  music:'<circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="16" r="2.6"/><path d="M9.1 18V7l11-2.2V16"/><path d="M9.1 10.6l11-2.2"/>',
+  repeat:'<path d="M4 10a6 6 0 0 1 6-6h8"/><path d="M15.5 1.5L18.5 4l-3 2.5"/><path d="M20 14a6 6 0 0 1-6 6H6"/><path d="M8.5 22.5L5.5 20l3-2.5"/>',
+  broadcast:'<circle cx="12" cy="12" r="2.2"/><path d="M8.4 8.4a5 5 0 0 0 0 7.2"/><path d="M15.6 15.6a5 5 0 0 0 0-7.2"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8"/><path d="M18.4 18.4a9 9 0 0 0 0-12.8"/>',
+  game:'<rect x="2" y="7.5" width="20" height="9" rx="4.5"/><path d="M7 12h3M8.5 10.5v3"/><circle cx="15.8" cy="11" r="1"/><circle cx="18.2" cy="13.2" r="1"/>',
+  tool:'<path d="M14.6 3.5a5 5 0 0 0-5.9 6.4l-6 6a2.1 2.1 0 0 0 3 3l6-6a5 5 0 0 0 6.4-5.9l-3.2 3.2-2.8-.7-.7-2.8z"/>',
+  wallet:'<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18a1 1 0 0 1 1 1v1.5"/><rect x="3" y="7.5" width="18" height="12" rx="2"/><path d="M15.5 13.5h5.5"/><circle cx="16.6" cy="13.5" r="1"/>',
+  apple:'<path d="M12.5 6.5c-1.6-.9-3.2-.9-4.6-.2C5.6 7.5 4.5 10.6 5.4 14c.7 2.7 2.4 5.5 4.1 5.5.9 0 1.4-.6 2.5-.6s1.5.6 2.5.6c1.7 0 3.4-2.8 4.1-5.5"/><path d="M18.6 14c.6-2.3-.2-4.6-1.9-5.6"/><path d="M12.5 6.5c1.1-.5 2.5-.4 3.6.2"/><path d="M13.5 5.5c1.2-.4 2-1.6 1.9-2.9-1.3.1-2.4 1-2.7 2.2"/>',
+  book:'<path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H19v18H5.5A1.5 1.5 0 0 1 4 19.5z"/><path d="M4 17h15"/><path d="M8 7h7"/>',
+  health:'<path d="M12 20.5C7 17 3.5 13.9 3.5 10.2A4.7 4.7 0 0 1 12 7.4a4.7 4.7 0 0 1 8.5 2.8c0 3.7-3.5 6.8-8.5 10.3z"/>',
+  shirt:'<path d="M8 3l4 2.5L16 3l5 3-2.5 4L17 9v12H7V9l-1.5 1L3 6z"/>',
+  home:'<path d="M3 10.5L12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-6h4v6"/>',
+  travel:'<rect x="3" y="7.5" width="18" height="12.5" rx="2"/><path d="M8.5 7.5V5a1.5 1.5 0 0 1 1.5-1.5h4A1.5 1.5 0 0 1 15.5 5v2.5"/><path d="M3 13h18"/>'
+};
+/* 新しいタグ・支払方法には、名前から自動でアイコンと色を割り当てる */
+var ICON_RULES=[
+  /* 支払方法系を先に判定（「Apple」「PayPal」等がタグ語に食われないように） */
+  [/現金|キャッシュ|Cash/i, 'cash'],
+  [/Apple|iCloud|iTunes/i, 'apple'],
+  [/PayPal|Pal|Wallet|財布/i, 'wallet'],
+  [/PayPay|Pay(?!ee)|決済|QR/i, 'phone'],
+  [/カード|VISA|Master|JCB|Amex|銀行|口座|信用|クレジット/i, 'card'],
+  /* タグ系 */
+  [/投資|株|信託|証券|積立|NISA|iDeCo|資産/i, 'trend'],
+  [/外食|飲食|ランチ|ディナー|カフェ|レストラン|居酒屋|喫茶|ラーメン|寿司|焼肉|弁当|定食|丼|そば|うどん|パン|飲み/, 'food'],
+  [/食料|食材|スーパー|青果|米|肉|魚|野菜|果物|調味|お菓子/, 'basket'],
+  [/交通|電車|バス|タクシー|移動|運賃|ガソリン|駐車|Suica|IC/i, 'train'],
+  [/旅行|ホテル|宿|旅|観光|出張/, 'travel'],
+  [/音楽|楽器|ミュージック|音源|プラグイン|ギター|ピアノ|Music|Audio|DTM/i, 'music'],
+  [/サブスク|定期|月額|年額|購読|継続|Subscription/i, 'repeat'],
+  [/ビジネス|仕事|事務|経費|会計|法人|営業|広告/, 'briefcase'],
+  [/配信|放送|ライブ|ストリーム|通信|ネット|携帯|電話|回線|Stream|Live/i, 'broadcast'],
+  [/娯楽|ゲーム|遊|趣味|エンタメ|映画|漫画|Game/i, 'game'],
+  [/機材|工具|備品|器具|ツール|PC|パソコン|家電|Tool/i, 'tool'],
+  [/プレゼント|ギフト|贈|お祝い|差し入れ|誕生日/, 'gift'],
+  [/本|書籍|学習|教育|勉強|新聞|雑誌|Book/i, 'book'],
+  [/医療|病院|薬|健康|サプリ|フィットネス|ジム|サウナ|温泉|整体|マッサージ|歯/, 'health'],
+  [/服|衣|美容|化粧|理容|美容院|床屋|靴/, 'shirt'],
+  [/家|住居|家賃|光熱|水道|電気|ガス|日用品|生活/, 'home'],
+  [/交際|接待|会食|友人/, 'person']
+];
+var AUTO_PALETTE=['#3ea6ff','#37d67a','#ffb020','#f472b6','#a78bfa','#22d3ee','#fb923c','#4ade80','#f87171','#60a5fa','#e0b45c','#34d399'];
+function inferIcon_(name){
+  var s=String(name||'');
+  for(var i=0;i<ICON_RULES.length;i++){ if(ICON_RULES[i][0].test(s)) return ICON_RULES[i][1]; }
+  return 'tag';
+}
+function autoColor_(name){
+  var s=String(name||''), h=0;
+  for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+  return AUTO_PALETTE[h % AUTO_PALETTE.length];
+}
+
+/** 🐢 と月名の「実際に描かれている部分」の中心を揃える。
+ *  絵文字はベースラインより下にはみ出す（実測: 🐢は下に4px、7月は2px）ため、
+ *  箱を中央寄せしただけでは見た目が下にずれる。
+ *  canvas で各文字のインク範囲を実測し、要素の箱の中心からのズレを求めて打ち消す。
+ *  端末ごとに絵文字フォントが違うので固定値にせず実行時に計算する。 */
+function alignTurtle(){
+  var t=document.querySelector('.home-hd .turtle'), m=document.querySelector('.home-hd .m');
+  if(!t||!m) return;
+  try{
+    var ctx=document.createElement('canvas').getContext('2d');
+    if(!ctx) return;
+    /* 箱の中心を0としたときの「インク中心」の位置を返す（正=下） */
+    function inkOffsetFromBoxCenter(el, txt){
+      var cs=getComputedStyle(el);
+      ctx.font=cs.fontWeight+' '+cs.fontSize+' '+cs.fontFamily;
+      var x=ctx.measureText(txt);
+      if(x.actualBoundingBoxAscent===undefined || x.fontBoundingBoxAscent===undefined) return null;
+      var box=el.getBoundingClientRect().height;
+      var baselineFromTop=(box - (x.fontBoundingBoxAscent + x.fontBoundingBoxDescent))/2 + x.fontBoundingBoxAscent;
+      var inkCenterFromTop=baselineFromTop + (x.actualBoundingBoxDescent - x.actualBoundingBoxAscent)/2;
+      return inkCenterFromTop - box/2;
+    }
+    t.style.transform='';   /* 前回の補正を外してから測る */
+    var a=inkOffsetFromBoxCenter(t, t.textContent||'🐢');
+    var b=inkOffsetFromBoxCenter(m, m.textContent||'7月');
+    if(a===null||b===null||!isFinite(a)||!isFinite(b)) return;
+    t.style.transform='translateY('+(b-a).toFixed(2)+'px)';
+  }catch(e){}
+}
+/* ラベル -> アイコン / 識別色（シート側の条件付き書式と色を揃えてある） */
+var STYLE={
+  /* 使途・評価 */
+  '個人':{i:'person',c:'#3ea6ff'}, '社用':{i:'briefcase',c:'#a78bfa'}, '家事按分':{i:'home',c:'#a78bfa'},
+  '投資':{i:'trend',c:'#37d67a'}, '消費':{i:'cart',c:'#3ea6ff'}, '浪費':{i:'flame',c:'#ff7a59'},
+  /* 支払方法 */
+  'PayPay':{i:'phone',c:'#ff5c5c'}, 'Suica':{i:'train',c:'#37d67a'},
+  '三井住友':{i:'card',c:'#4ade80'}, '三菱UFJ':{i:'card',c:'#f87171'}, 'JCB':{i:'card',c:'#60a5fa'},
+  'Freee':{i:'file',c:'#38bdf8'}, 'PayPal':{i:'wallet',c:'#818cf8'}, 'Apple':{i:'apple',c:'#c9d1d9'},
+  '現金':{i:'cash',c:'#ffb020'},
+  /* タグ */
+  '外食':{i:'food',c:'#ffb020'}, '食料品':{i:'basket',c:'#4ade80'}, '交通':{i:'train',c:'#60a5fa'},
+  'サブスク':{i:'repeat',c:'#a78bfa'}, '音楽':{i:'music',c:'#f472b6'}, 'ビジネス':{i:'briefcase',c:'#2dd4bf'},
+  '配信':{i:'broadcast',c:'#fbbf24'}, '娯楽':{i:'game',c:'#fb7185'},
+  'プレゼント':{i:'gift',c:'#f87171'}, '機材':{i:'tool',c:'#94a3b8'}
+};
+/** 未登録のラベルは、名前からアイコンと色を自動で割り当てる（新しいタグ・支払方法用） */
+function styleOf(label){ return STYLE[label] || {i:inferIcon_(label), c:autoColor_(label)}; }
+
+function iconSvg(name){
+  return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '+
+    'stroke-linecap="round" stroke-linejoin="round">'+(ICON[name]||ICON.tag)+'</svg>';
+}
+
+/* ---- 遷移 ---- */
+function paint(html){ app.innerHTML='<div class="screen'+(navDir==='back'?' rev':'')+'">'+html+'</div>'; window.scrollTo(0,0); }
+function go(step){ navDir='fwd'; cur=step; render(); }
+function next(){
+  if(editReturn){ editReturn=false; navDir='fwd'; cur='confirm'; render(); return; }
+  var steps=activeSteps(); var i=steps.indexOf(cur);
+  navDir='fwd'; cur=(i<steps.length-1)?steps[i+1]:'confirm'; render();
+}
+function back(){
+  navDir='back';
+  if(editReturn){ editReturn=false; cur='confirm'; render(); return; }  /* 確認画面から修正に来た場合は確認へ戻す */
+  if(cur==='confirm'){ var s=activeSteps(); cur=s[s.length-1]; render(); return; }
+  var steps=activeSteps(); var i=steps.indexOf(cur);
+  cur=(i<=0)?'home':steps[i-1]; render();
+}
+function pick(field,val){
+  data[field]=val;
+  if(field==='shito'){ data.kanjo=(val==='個人')?'個人':''; }  /* 個人は問答無用で勘定項目=個人 */
+  vib(15); setTimeout(next,150);
+}
+
+/* ---- 電卓（四則演算・×÷優先） ---- */
+var calcExpr='';
+var BKSP='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-10.5a1 1 0 0 1 -.7 -.3l-4.8 -4.8a1.3 1.3 0 0 1 0 -1.8l4.8 -4.8a1 1 0 0 1 .7 -.3z"/><path d="M12 10.5l3 3m0 -3l-3 3"/></svg>';
+function evalExpr(s){
+  if(!s) return 0;
+  var toks=String(s).match(/(\d+\.?\d*|[+\-−×÷])/g);
+  if(!toks) return 0;
+  toks=toks.slice();
+  while(toks.length && /[+\-−×÷]/.test(toks[toks.length-1])) toks.pop();
+  if(!toks.length) return 0;
+  var p=[toks[0]];
+  for(var i=1;i<toks.length;i+=2){
+    var op=toks[i], n=toks[i+1];
+    if(n===undefined) break;
+    if(op==='×') p[p.length-1]=String(Number(p[p.length-1])*Number(n));
+    else if(op==='÷') p[p.length-1]=String(Number(n)===0?0:Number(p[p.length-1])/Number(n));
+    else { p.push(op); p.push(n); }
+  }
+  var r=Number(p[0])||0;
+  for(var j=1;j<p.length;j+=2){
+    var o=p[j], m=Number(p[j+1])||0;
+    if(o==='+') r+=m; else if(o==='-'||o==='−') r-=m;
+  }
+  return isFinite(r)?r:0;
+}
+function calcKey(k){
+  if(k==='C') calcExpr='';
+  else if(k==='back') calcExpr=calcExpr.slice(0,-1);
+  else if(k==='='){ var r=evalExpr(calcExpr); calcExpr=(r>0)?String(Math.round(r)):''; }
+  else if(k==='+'||k==='−'||k==='×'||k==='÷'){
+    if(!calcExpr) return;                                        /* 先頭に演算子は置かない */
+    if(/[+\-−×÷]$/.test(calcExpr)) calcExpr=calcExpr.slice(0,-1)+k;  /* 連続演算子は置換 */
+    else calcExpr+=k;
+  } else { calcExpr+=k; }                                        /* 数字・00 */
+  if(calcExpr.length>24) calcExpr=calcExpr.slice(0,24);
+  vib(8); updateCalc();
+}
+function updateCalc(){
+  var e=document.getElementById('expr'), v=document.getElementById('amt'), b=document.getElementById('nextBtn');
+  if(!e) return;
+  var r=Math.round(evalExpr(calcExpr)); var pos=r>0;
+  e.textContent=calcExpr||'0';
+  var nt=pos?fy(r):'0';
+  if(v.textContent!==nt){ v.classList.remove('bump'); void v.offsetWidth; v.classList.add('bump'); }
+  v.textContent=nt; v.classList.toggle('empty',!pos);
+  if(b) b.disabled=!pos;
+}
+function commitAmount(){ var r=Math.round(evalExpr(calcExpr)); if(r>0){ data.amount=String(r); next(); } }
+
+/* ---- 部品 ---- */
+function navbar(title,showBack){
+  var steps=activeSteps(); var i=steps.indexOf(cur);
+  var dots = steps.map(function(s,idx){
+    var cls='dot'+(idx===i?' on':((cur==='confirm'||idx<i)?' done':''));
+    return '<span class="'+cls+'"></span>';
+  }).join('');
+  return '<div class="navbar">'+
+    '<div class="back'+(showBack?'':' hidden')+'" onclick="back()">‹</div>'+
+    '<span class="steplabel">'+title+'</span>'+
+    '<span class="progress">'+dots+'</span></div>';
+}
+
+/* ---- 各画面 ---- */
+function render(){
+  if(cur==='home') return renderHome();
+  if(cur==='confirm') return renderConfirm();
+  if(cur==='amount') return renderAmount();
+  if(cur==='item') return renderItem();
+  if(cur==='tag') return renderTag();
+  if(cur==='method') return renderMethod();
+  if(cur==='shito') return renderChoice('shito', ['個人','社用'], '使途を選ぶ');
+  if(cur==='kanjo') return renderChoice('kanjo', meta.kanjo.filter(function(v){return v!=='個人';}), '勘定項目を選ぶ');
+  if(cur==='hyoka') return renderChoice('hyoka', meta.hyoka, '評価を選ぶ');
+}
+
+function renderHome(){
+  var t=meta.totals||{sha:0,koj:0};
+  /* 今月の支出を「評価（投資/消費/浪費）」の割合で見せる */
+  var toshi=t.toshi||0, shohi=t.shohi||0, rohi=t.rohi||0;
+  var total=toshi+shohi+rohi;
+  var pct=function(v){ return total ? (v/total*100) : 0; };
+  var seg=[
+    {k:'投資', v:toshi, c:'#37d67a'},
+    {k:'消費', v:shohi, c:'#3ea6ff'},
+    {k:'浪費', v:rohi,  c:'#ff7a59'}
+  ];
+  var bar=seg.map(function(s){
+    return '<span style="width:'+pct(s.v)+'%; background:'+s.c+'"></span>';
+  }).join('');
+  var legend=seg.map(function(s){
+    return '<span class="lg"><i class="dot" style="background:'+s.c+'"></i>'+s.k+'</span>';
+  }).join('');
+  var qt=randomQuote();
+  paint(
+    '<div class="home-hd"><span class="turtle">🐢</span><span class="m">'+esc(meta.monthName)+'</span></div>'+
+    '<div class="homebody">'+
+      '<div class="hero">'+
+        '<div class="hlabel">今月の支出</div>'+
+        '<div class="hvalue">¥'+fy(total)+'</div>'+
+        '<div class="hbar">'+bar+'</div>'+
+        '<div class="hlegend">'+legend+'</div>'+
+      '</div>'+
+      '<div class="quote">'+
+        '<div class="qmark">“</div>'+
+        '<div class="qtext">'+quoteHtml(qt.q)+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<button class="homeadd" onclick="startEntry()"><span style="font-size:24px">＋</span> 入力する</button>');
+  fitQuote(qt.q);
+  alignTurtle();
+}
+function startEntry(){
+  data={amount:'',item:'',tag:'',method:'',shito:'',kanjo:'',hyoka:'',date:meta.today};
+  calcExpr=''; editReturn=false; tagInherited=false; methodExpanded=false; go('amount');
+}
+
+function renderAmount(){
+  if(!calcExpr && data.amount) calcExpr=String(data.amount);
+  var keys=[
+    {t:'C',c:'fn',k:'C'},{t:'÷',c:'op',k:'÷'},{t:'×',c:'op',k:'×'},{t:BKSP,c:'fn',k:'back'},
+    {t:'7',k:'7'},{t:'8',k:'8'},{t:'9',k:'9'},{t:'−',c:'op',k:'−'},
+    {t:'4',k:'4'},{t:'5',k:'5'},{t:'6',k:'6'},{t:'＋',c:'op',k:'+'},
+    {t:'1',k:'1'},{t:'2',k:'2'},{t:'3',k:'3'},{t:'＝',c:'eq',k:'='},
+    {t:'00',k:'00'},{t:'0',c:'zero',k:'0'}
+  ];
+  var kpHtml=keys.map(function(x){
+    return '<div class="key'+(x.c?' '+x.c:'')+'" onclick="calcKey(\''+x.k+'\')">'+x.t+'</div>';
+  }).join('');
+  paint(
+    navbar(LABELS.amount, true)+
+    '<div class="q">金額を入力</div>'+
+    '<div class="body">'+
+      '<div class="calcdisp">'+
+        '<div class="expr" id="expr">'+(calcExpr||'0')+'</div>'+
+        '<div class="res"><span class="val empty" id="amt">0</span></div>'+
+      '</div>'+
+      '<div class="keypad">'+kpHtml+'</div>'+
+    '</div>'+
+    '<div class="foot"><button class="btn" id="nextBtn" onclick="commitAmount()" disabled>次へ</button></div>');
+  updateCalc();
+}
+
+function renderItem(){
+  paint(
+    navbar(LABELS.item, true)+
+    '<div class="q">品目を入力</div>'+
+    '<div class="body">'+
+      '<input class="item" id="itm" type="text" placeholder="例：食材調達" autocomplete="off" value="'+esc(data.item)+'">'+
+      (SUGGEST_ENABLED ? '<div class="recents" id="rec"></div>' : '')+
+    '</div>'+
+    '<div class="foot"><button class="btn" id="nextBtn" onclick="commitItem()"'+(data.item.trim()?'':' disabled')+'>次へ</button></div>');
+  var inp=document.getElementById('itm');
+  inp.addEventListener('input',function(){
+    data.item=this.value;
+    tagInherited=false;                      /* 手で打ち直したら引き継ぎは解除 */
+    document.getElementById('nextBtn').disabled=!this.value.trim();
+    renderSuggest(this.value);
+  });
+  renderSuggest(data.item);
+  setTimeout(function(){ inp.focus(); },80);
+}
+/* 入力に対する過去品目の類似候補（表記ゆれ防止＝同じワードに揃える） */
+function similarItems(q, n){
+  var pool=meta.recentItems||[]; var lq=String(q).trim().toLowerCase();
+  if(!lq) return [];
+  var starts=[], inc=[];
+  pool.forEach(function(t){
+    var lt=String(t).toLowerCase();
+    if(lt===lq) return;                       /* 完全一致は候補に出さない */
+    if(lt.indexOf(lq)===0) starts.push(t);
+    else if(lt.indexOf(lq)>=0) inc.push(t);
+  });
+  return starts.concat(inc).slice(0, n||6);
+}
+function renderSuggest(q){
+  if(!SUGGEST_ENABLED) return;              /* 候補は一旦オフ */
+  var rec=document.getElementById('rec'); if(!rec) return;
+  rec.innerHTML='';
+  var hits=similarItems(q, 6);                /* 入力してから・似た候補があるときだけ出す */
+  hits.forEach(function(t){
+    var c=document.createElement('div'); c.className='rchip'; c.textContent=t;
+    c.onclick=function(){ setItem(t, c); };
+    rec.appendChild(c);
+  });
+}
+/* 候補を選んだときの演出: 押した候補が確定色に光り、他は静かに消え、入力欄が受け取る */
+function setItem(t, el){
+  if(pickingItem) return;
+  pickingItem=true;
+  data.item=t;
+  var tg=(meta.itemTags||{})[t];            /* 過去に同じ品目で選んだタグを引き継ぐ */
+  if(tg){ data.tag=tg; tagInherited=true; } /* 引き継いだらタグ選択は飛ばす（確認画面で変更可） */
+  vib(12);
+
+  if(el){
+    el.classList.add('picked');
+    [].forEach.call(document.querySelectorAll('.rchip'), function(c){
+      if(c!==el) c.classList.add('dim');
+    });
+  }
+  var inp=document.getElementById('itm');
+  if(inp){
+    inp.value=t;
+    inp.classList.remove('flash'); void inp.offsetWidth; inp.classList.add('flash');
+  }
+  var b=document.getElementById('nextBtn');
+  if(b){ b.disabled=false; b.classList.remove('ready'); void b.offsetWidth; b.classList.add('ready'); }
+
+  setTimeout(function(){ pickingItem=false; renderSuggest(t); }, 460);
+}
+var pickingItem=false;
+function commitItem(){ var v=document.getElementById('itm').value.trim(); if(!v) return; data.item=v; next(); }
+
+/* 支払方法: よく使う3つだけ出し、残りは「詳細オプション」に隠す */
+var PRIMARY_METHODS=['三井住友','三菱UFJ','PayPay','現金'];
+var methodExpanded=false;
+function renderMethod(){
+  var all=meta.methods||[];
+  var primary=PRIMARY_METHODS.filter(function(v){ return all.indexOf(v)>=0; });
+  var others=all.filter(function(v){ return primary.indexOf(v)<0; });
+  /* 既に主要以外が選ばれている場合は開いた状態で出す（戻ってきたとき選択が見えるように） */
+  var open = methodExpanded || (data.method && primary.indexOf(data.method)<0);
+  var html=primary.map(function(v){ return choiceHtml('method', v); }).join('');
+  if(open){
+    html+=others.map(function(v){ return choiceHtml('method', v); }).join('');
+    html+='<div class="choice newtag" onclick="showAddMethod()"><span>＋ 新しい支払方法</span></div>';
+  }
+  paint(
+    navbar(LABELS.method, true)+
+    '<div class="q">支払方法を選ぶ</div>'+
+    '<div class="body">'+
+      '<div class="choices'+(open&&all.length>5?' grid2':'')+'">'+html+'</div>'+
+      '<div id="addMethodBox"></div>'+
+      (open ? '' : '<button class="btn ghost more" onclick="expandMethods()">詳細オプション</button>')+
+    '</div>');
+}
+function expandMethods(){ methodExpanded=true; navDir='fwd'; render(); }
+function showAddMethod(){
+  var box=document.getElementById('addMethodBox');
+  box.innerHTML='<div class="addrow">'+
+    '<input class="item" id="newMethod" type="text" placeholder="支払方法の名前" autocomplete="off">'+
+    '<button class="btn compact" onclick="commitAddMethod()">追加</button></div>';
+  var i=document.getElementById('newMethod');
+  i.addEventListener('keydown',function(e){ if(e.key==='Enter') commitAddMethod(); });
+  setTimeout(function(){ i.focus(); },60);
+}
+function commitAddMethod(){
+  var el=document.getElementById('newMethod'); if(!el) return;
+  var v=el.value.trim(); if(!v) return;
+  google.script.run
+    .withSuccessHandler(function(list){ meta.methods=list; data.method=v; vib(15); next(); })
+    .withFailureHandler(function(e){ toast('追加できません: '+(e&&e.message?e.message:e), true); })
+    .addMethod(v);
+}
+
+/* タグ（任意項目）: 選ぶ / 追加する / スキップ */
+function renderTag(){
+  var list=meta.tags||[];
+  var items=list.map(function(v){ return choiceHtml('tag', v); }).join('');
+  items+='<div class="choice newtag" onclick="showAddTag()"><span>＋ 新しいタグ</span></div>';
+  var two=(list.length+1)>6;
+  paint(
+    navbar(LABELS.tag, true)+
+    '<div class="q">タグを選ぶ</div>'+
+    '<div class="body">'+
+      '<div class="choices'+(two?' grid2':'')+'">'+items+'</div>'+
+      '<div id="addTagBox"></div>'+
+    '</div>');
+}
+function showAddTag(){
+  var box=document.getElementById('addTagBox');
+  box.innerHTML='<div class="addrow">'+
+    '<input class="item" id="newTag" type="text" placeholder="タグ名" autocomplete="off">'+
+    '<button class="btn compact" onclick="commitAddTag()">追加</button></div>';
+  var i=document.getElementById('newTag');
+  i.addEventListener('keydown',function(e){ if(e.key==='Enter') commitAddTag(); });
+  setTimeout(function(){ i.focus(); },60);
+}
+function commitAddTag(){
+  var el=document.getElementById('newTag'); if(!el) return;
+  var v=el.value.trim(); if(!v) return;
+  google.script.run
+    .withSuccessHandler(function(list){ meta.tags=list; data.tag=v; vib(15); next(); })
+    .withFailureHandler(function(e){ toast('追加できません: '+(e&&e.message?e.message:e), true); })
+    .addTag(v);
+}
+
+function renderChoice(field, list, q){
+  list=list||[];
+  var two=list.length>6;                       /* 項目が多いときは2列で収める */
+  var items=list.map(function(v){ return choiceHtml(field, v); }).join('');
+  paint(
+    navbar(LABELS[field], true)+
+    '<div class="q">'+q+'</div>'+
+    '<div class="body"><div class="choices'+(two?' grid2':'')+'">'+items+'</div></div>');
+}
+
+/* アイコン＋識別色つきの選択カード */
+function choiceHtml(field, v){
+  var st=styleOf(v), on=data[field]===v;
+  return '<div class="choice'+(on?' on':'')+'" style="--c:'+st.c+'" '+
+    'onclick="pick(\''+field+'\',\''+esc(v).replace(/'/g,"\\'")+'\')">'+
+    iconSvg(st.i)+'<span>'+esc(v)+'</span><span class="tick">✓</span></div>';
+}
+
+function renderConfirm(){
+  var personalKanjo = (data.shito==='個人');   // 個人は勘定項目=個人で固定・編集不可
+  var rowsList=[
+    ['amount','金額','¥'+fy(data.amount),true],
+    ['item','品目',esc(data.item),true],
+    ['tag','タグ',data.tag?esc(data.tag):'—',true],
+    ['method','支払方法',esc(data.method),true],
+    ['shito','使途',esc(data.shito),true],
+    ['kanjo','勘定項目',esc(data.kanjo),!personalKanjo],
+    ['hyoka','評価',esc(data.hyoka),true]
+  ];
+  var rows=rowsList.map(function(r){
+    var editable=r[3];
+    return '<div class="row"'+(editable?' onclick="editField(\''+r[0]+'\')"':'')+'>'+
+      '<span class="l">'+r[1]+'</span><span class="v">'+r[2]+'</span>'+
+      (editable?'<span class="edit">変更</span>':'')+'</div>';
+  }).join('');
+  var dateRow='<div class="row" onclick="openDate(event)">'+
+    '<span class="l">日付</span>'+
+    '<span class="v" id="dtLabel">'+dateLabel(data.date)+'</span>'+
+    '<input type="date" id="dt" value="'+data.date+'" onchange="onDateChange(this.value)" '+
+      'style="position:absolute; left:18px; bottom:6px; opacity:0; width:1px; height:1px; pointer-events:none;">'+
+    '<span class="edit" id="todayBtn">今日</span></div>';
+  paint(
+    navbar('確認', true)+
+    '<div class="q">これで記録する？</div>'+
+    '<div class="body"><div class="rows">'+rows+dateRow+'</div></div>'+
+    '<div class="foot"><button class="btn" id="saveBtn" onclick="save()">記録する</button></div>');
+  document.getElementById('todayBtn').onclick=function(ev){ ev.stopPropagation();
+    data.date=meta.today; document.getElementById('dt').value=meta.today;
+    document.getElementById('dtLabel').textContent=dateLabel(meta.today); };
+}
+function dateLabel(iso){
+  if(!iso) return '—';
+  var p=iso.split('-'); var wd=['日','月','火','水','木','金','土'];
+  var d=new Date(iso+'T00:00:00');
+  return p[0]+'/'+p[1]+'/'+p[2]+'（'+wd[d.getDay()]+'）';
+}
+function openDate(e){
+  if(e && e.target && e.target.id==='todayBtn') return;
+  var el=document.getElementById('dt');
+  try{ el.showPicker(); }catch(_){ el.focus(); el.click(); }
+}
+function onDateChange(v){ data.date=v; var l=document.getElementById('dtLabel'); if(l) l.textContent=dateLabel(v); }
+function editField(f){ editReturn=true; go(f); }
+
+function save(){
+  var btn=document.getElementById('saveBtn'); btn.disabled=true; btn.textContent='記録中…';
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res&&res.totals) meta.totals=res.totals;
+      if(res&&res.itemTags) meta.itemTags=res.itemTags;   /* 品目→タグ の記憶を最新化 */
+      vib(30); celebrate();
+    })
+    .withFailureHandler(function(err){
+      btn.disabled=false; btn.textContent='記録する';
+      toast('失敗: '+(err&&err.message?err.message:err), true);
+    })
+    .appendExpense({date:data.date||meta.today, item:data.item, price:data.amount,
+      tag:data.tag, method:data.method, shito:data.shito, kanjo:data.kanjo, hyoka:data.hyoka});
+}
+function celebrate(){
+  navDir='fwd';
+  app.innerHTML='<div class="screen"><div class="success">'+
+    '<svg class="check" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l7 7 15-16"/></svg>'+
+    '<div class="stitle">記録しました</div>'+
+    '<div class="ssub">¥'+fy(data.amount)+'　'+esc(data.item)+'</div>'+
+  '</div></div>';
+  setTimeout(function(){ go('home'); }, 1300);
+}
+
+/* ---- 起動 ---- */
+function bootApp(){
+  app.innerHTML='<div class="q" style="margin-top:60px">読み込み中…</div>';
+  google.script.run.withSuccessHandler(function(m){
+    meta=m;
+    if(!meta.methods) meta.methods=['PayPay','Suica','三井住友','三菱UFJ','JCB','Freee','PayPal','Apple','現金'];
+    if(!meta.tags) meta.tags=['外食','食料品','交通','サブスク','音楽','ビジネス','配信','娯楽','プレゼント','機材'];
+    if(!meta.itemTags) meta.itemTags={};
+    data.date=m.today; go('home');
+  }).withFailureHandler(function(e){
+    if(e&&e.unauthorized){ renderSetup('PINが正しくありません。もう一度入力してください。'); return; }
+    app.innerHTML='<div class="q" style="margin-top:40px">読込に失敗しました</div><div class="qsub">'+esc((e&&e.message)||e)+'</div>';
+  }).getFormMeta();
+}
+
+/* 初回だけ PIN を入力してもらい端末に保存する（本番のみ）。公開ソースに秘密を置かないための仕組み。 */
+function renderSetup(msg){
+  app.innerHTML=
+    '<div class="navbar"><div class="back hidden">‹</div><div class="steplabel">初期設定</div></div>'+
+    '<div class="body">'+
+      '<div class="q">アプリのPINを入力</div>'+
+      '<div class="qsub">最初の1回だけ。この端末に保存され、次回からは不要です。</div>'+
+      (msg?'<div class="qsub" style="color:#ff7a59">'+esc(msg)+'</div>':'')+
+      '<input class="item" id="pinin" type="password" inputmode="text" autocomplete="off" placeholder="PIN">'+
+    '</div>'+
+    '<div class="foot"><button class="btn" id="pinsave">保存して開始</button></div>';
+  var inp=document.getElementById('pinin');
+  function save(){ var v=(inp.value||'').trim(); if(!v) return; localStorage.setItem('wallet_pin',v); bootApp(); }
+  document.getElementById('pinsave').onclick=save;
+  inp.addEventListener('keydown',function(ev){ if(ev.key==='Enter') save(); });
+  setTimeout(function(){ inp.focus(); },100);
+}
+window.__onUnauthorized=function(){ renderSetup('PINが正しくありません。もう一度入力してください。'); };
+
+if(USE_LIVE && !getPin()) renderSetup(''); else bootApp();
+</script>
+</body>
+</html>
