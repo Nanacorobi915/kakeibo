@@ -151,10 +151,20 @@
     100%{border-color:var(--line); box-shadow:none;}}
   .btn.ready{animation:readyPulse .5s var(--ease);}
   @keyframes readyPulse{0%{transform:scale(1);} 40%{transform:scale(1.025);} 100%{transform:scale(1);}}
+  /* --- loading（中央にリング＋亀アイコンのパルス） --- */
+  .loading{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;}
+  .spinner{position:relative; width:76px; height:76px;}
+  .spinner:before{content:''; position:absolute; inset:0; border-radius:50%;
+    border:3px solid var(--line); border-top-color:var(--accent); animation:spin .8s linear infinite;}
+  .spinner .spimg{position:absolute; inset:15px; width:46px; height:46px; border-radius:13px;
+    animation:lpulse 1.5s var(--ease) infinite;}
+  .ltext{color:var(--sub); font-size:13.5px; letter-spacing:.14em; animation:ldots 1.5s ease-in-out infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @keyframes lpulse{0%,100%{opacity:.75; transform:scale(.95);} 50%{opacity:1; transform:scale(1.05);}}
+  @keyframes ldots{0%,100%{opacity:.5;} 50%{opacity:1;}}
   /* --- home --- */
-  /* 🐢 は文字とグリフの中心が合わない（ベースラインより下にはみ出す）。
-     まずベースラインを揃え、実測したインク中心の差を alignTurtle() が translateY で補正する。 */
   .home-hd{display:flex; align-items:center; gap:8px; padding:18px 2px 2px;}
+  .home-hd .turtleimg{width:26px; height:26px; border-radius:7px; display:block;}
   .home-hd .turtle{font-size:26px; line-height:1; display:inline-block;}
   .home-hd .m{font-size:20px; font-weight:800; letter-spacing:.02em; line-height:1; display:inline-block;}
   /* ホーム本体: 支出と名言を画面の中央に置く */
@@ -771,9 +781,8 @@ function renderHome(){
   var legend=seg.map(function(s){
     return '<span class="lg"><i class="dot" style="background:'+s.c+'"></i>'+s.k+'</span>';
   }).join('');
-  var qt=randomQuote();
   paint(
-    '<div class="home-hd"><span class="turtle">🐢</span><span class="m">'+esc(meta.monthName)+'</span></div>'+
+    '<div class="home-hd"><img class="turtleimg" src="icon-192.png" alt="🐢"><span class="m">'+esc(meta.monthName)+'</span></div>'+
     '<div class="homebody">'+
       '<div class="hero">'+
         '<div class="hlabel">今月の支出</div>'+
@@ -781,14 +790,8 @@ function renderHome(){
         '<div class="hbar">'+bar+'</div>'+
         '<div class="hlegend">'+legend+'</div>'+
       '</div>'+
-      '<div class="quote">'+
-        '<div class="qmark">“</div>'+
-        '<div class="qtext">'+quoteHtml(qt.q)+'</div>'+
-      '</div>'+
     '</div>'+
     '<button class="homeadd" onclick="startEntry()"><span style="font-size:24px">＋</span> 入力する</button>');
-  fitQuote(qt.q);
-  alignTurtle();
 }
 function startEntry(){
   data={amount:'',item:'',tag:'',method:'',shito:'',kanjo:'',hyoka:'',date:meta.today};
@@ -1056,8 +1059,15 @@ function celebrate(){
 }
 
 /* ---- 起動 ---- */
+function renderLoading(){
+  app.innerHTML=
+    '<div class="loading">'+
+      '<div class="spinner"><img class="spimg" src="icon-192.png" alt=""></div>'+
+      '<div class="ltext">読み込み中</div>'+
+    '</div>';
+}
 function bootApp(){
-  app.innerHTML='<div class="q" style="margin-top:60px">読み込み中…</div>';
+  renderLoading();
   google.script.run.withSuccessHandler(function(m){
     meta=m;
     if(!meta.methods) meta.methods=['PayPay','Suica','三井住友','三菱UFJ','JCB','Freee','PayPal','Apple','現金'];
